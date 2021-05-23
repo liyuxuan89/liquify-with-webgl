@@ -1,0 +1,258 @@
+<!-- Licensed under a BSD license. See license.html for license -->
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>WebGL - liquify</title>
+  <style>
+    * {margin: 0; border: 0;}
+    html, body {height: 100%; width: 100%;}
+  </style>
+</head>
+
+<body>
+  <canvas id="canvas"></canvas>
+</body>
+
+<script id="vertex-shader-2d" type="x-shader/x-fragment">
+  attribute vec2 a_position;
+  varying vec2 v_position;
+  void main() {
+    gl_Position = vec4(a_position, 0, 1);
+    v_position = a_position;
+  }
+</script>
+
+<script id="fragment-shader-2d" type="x-shader/x-fragment">
+  precision mediump float;
+  uniform sampler2D u_image;
+  uniform vec2 u_scale;
+  uniform vec2 u_offset;
+  uniform vec2 u_move;
+  uniform vec2 u_center;
+  uniform float u_radius;
+  uniform bool u_process;
+  varying vec2 v_position;
+  void main() {
+    vec2 pos = v_position;
+    if(!u_process){
+      pos.y = -pos.y;
+      pos = (pos + 1.0 - u_offset) / u_scale;
+      gl_FragColor = texture2D(u_image, pos);
+    } else {
+      float dis = length(pos - u_center);
+      if(dis > u_radius){dis = u_radius;}
+      vec2 move = u_move;
+      if(length(move) > 0.5 * u_radius) {
+        move = move * u_radius / length(move) * 0.5;
+      }
+      pos = pos - move * (1.0 - dis / u_radius);
+      pos = (pos + 1.0) / 2.0;
+      gl_FragColor = texture2D(u_image, pos);
+    }
+  }
+</script>
+
+<script>
+  "use strict";
+  var {canvas, gl, program} = init();
+  var renderFunc, moveIdxFunc, saveFunc;
+  var mouse_down = false;
+  var start_x, start_y;
+
+  var image = new Image();
+  image.src = "test.jpg";
+  image.onload = function() {
+    var funcs = render(canvas, gl, program, image);
+    renderFunc = funcs.renderFunc;
+    moveIdxFunc = funcs.moveIdxFunc;
+    saveFunc = funcs.saveFunc;
+    renderFunc();
+  }
+  canvas.addEventListener('mousedown', e=>{
+    mouse_down = true;
+    var bbox = canvas.getBoundingClientRect();
+    start_x = (e.x - bbox.left) * (canvas.width / bbox.width);
+    start_y = (e.y - bbox.top) * (canvas.height / bbox.height);
+  })
+
+  canvas.addEventListener('mousemove', e=>{
+    if(mouse_down){
+        var bbox = canvas.getBoundingClientRect();
+        var x = (e.x - bbox.left) * (canvas.width / bbox.width);
+        var y = (e.y - bbox.top) * (canvas.height / bbox.height);
+        renderFunc(x, y, x - start_x, y - start_y);
+    }
+  })
+
+  canvas.addEventListener('mouseup', e=>{
+    mouse_down = false;
+    moveIdxFunc();
+  })
+
+  document.addEventListener("keydown", function(e) {
+    if (e.keyCode == 83 && (navigator.platform.match("Mac") ? e.metaKey : e.ctrlKey)) {
+        e.preventDefault();
+        saveFunc();
+    }
+  });
+
+  // 创建着色器方法
+  function createShader(gl, type, source) {
+    var shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    var success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+    if (success) {
+      return shader;
+    }
+    console.log(gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader);
+  }
+
+  // 创建程序
+  function createProgram(gl, vertexShader, fragmentShader) {
+    var program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    var success = gl.getProgramParameter(program, gl.LINK_STATUS);
+    if (success) {
+      return program;
+    }
+    console.log(gl.getProgramInfoLog(program));
+    gl.deleteProgram(program);
+  }
+
+  // 创建texture
+  function createAndSetupTexture(gl) {
+    var texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+ 
+    // 设置材质，这样我们可以对任意大小的图像进行像素操作
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+ 
+    return texture;
+  }
+
+  // 初始化
+  function init() {
+    var canvas = document.querySelector("#canvas");
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
+    var gl = canvas.getContext("webgl");
+
+    // 构建webgl程序
+    var vertexShaderSource = document.querySelector("#vertex-shader-2d").text;
+    var fragmentShaderSource = document.querySelector("#fragment-shader-2d").text;
+    var vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+    var fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+    var program = createProgram(gl, vertexShader, fragmentShader);
+    gl.useProgram(program);
+
+    // buffer 存放数据
+    var positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    var positions = [-1.0, -1.0, -1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0];
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+    // 设置attribute
+    var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
+    gl.enableVertexAttribArray(positionAttributeLocation);
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0)
+
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    return {canvas:canvas, gl:gl, program:program};
+  }
+
+  function render(canvas, gl, program, image) {
+    // 创建纹理
+    var idx = 0;
+    var textures = [];
+    var framebuffers = [];
+    var link = document.createElement("a");
+    var canvas_save = document.createElement("canvas");
+    var ctx = canvas_save.getContext('2d');
+    canvas_save.width = image.width;
+    canvas_save.height = image.height;
+
+    textures.push(createAndSetupTexture(gl));
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+    textures.push(createAndSetupTexture(gl));
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, image.width, image.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    for(var i=0; i<2; i++){
+      var fbo = gl.createFramebuffer();
+      framebuffers.push(fbo);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, textures[i], 0);
+    }
+    var offsetUniformLocation = gl.getUniformLocation(program, "u_offset");
+    var processUniformLocation = gl.getUniformLocation(program, "u_process");
+    var scaleUniformLocation = gl.getUniformLocation(program, "u_scale");
+    var radiusUniformLocation = gl.getUniformLocation(program, "u_radius");
+    var moveUniformLocation = gl.getUniformLocation(program, "u_move");
+    var centerUniformLocation = gl.getUniformLocation(program, "u_center");
+
+    var scale_x = canvas.width / image.width;
+    var scale_y = canvas.height / image.height;
+    var scale = scale_x < scale_y ? scale_x : scale_y;
+    var offset_x = (canvas.width - image.width * scale) / canvas.width;
+    var offset_y = (canvas.height - image.height * scale) / canvas.height;
+    scale_x = image.width * scale / canvas.width * 2;
+    scale_y = image.height * scale / canvas.height * 2;
+
+    function moveIdxFunc(){
+      idx = (idx + 1) % 2;
+    }
+
+    function saveFunc(){
+      gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffers[idx]);
+      var pixels = new Uint8ClampedArray(image.width * image.height * 4);
+      gl.readPixels(0, 0, image.width, image.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      var imageData = new ImageData(pixels, image.width, image.height);
+      ctx.putImageData(imageData, 0, 0);
+      var imageUrl = canvas_save.toDataURL("image/png");
+      link.href = imageUrl;
+      link.download = "output.png";
+      link.click();
+    }
+
+    function renderFunc(center_x=0.0, center_y=0.0, move_x=0.0, move_y=0.0, radius=0.2) {
+      // 转换坐标
+      center_x = (center_x - offset_x * canvas.width / 2) / scale / image.width * 2 - 1.0;
+      center_y = (center_y - offset_y * canvas.height / 2) / scale / image.height * 2 - 1.0;
+      move_x = move_x / canvas.width * 2;
+      move_y = move_y / canvas.height * 2;
+      // 进行图像处理
+      var idx_f = (idx + 1) % 2;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffers[idx_f]);
+      gl.bindTexture(gl.TEXTURE_2D, textures[idx]);
+      gl.uniform2f(centerUniformLocation, center_x, center_y);
+      gl.uniform2f(moveUniformLocation, move_x, move_y);
+      gl.uniform1f(processUniformLocation, true);
+      gl.uniform1f(radiusUniformLocation, radius);
+      gl.viewport(0, 0, image.width, image.height);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      // 设置texture
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.bindTexture(gl.TEXTURE_2D, textures[idx_f]);
+      // 设置uniform
+      gl.uniform2f(offsetUniformLocation, offset_x, offset_y);
+      gl.uniform2f(scaleUniformLocation, scale_x, scale_y);
+      gl.uniform1f(processUniformLocation, false);
+      // 渲染最终结果
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+    return {renderFunc: renderFunc, moveIdxFunc: moveIdxFunc, saveFunc: saveFunc}
+  }
+</script>
+</html>
