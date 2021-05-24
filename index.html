@@ -40,7 +40,11 @@
     if(!u_process){
       pos.y = -pos.y;
       pos = (pos + 1.0 - u_offset) / u_scale;
-      gl_FragColor = texture2D(u_image, pos);
+      if(pos.x < 0.0 || pos.y < 0.0 || pos.x > 1.0 || pos.y > 1.0) {
+        gl_FragColor = vec4(1, 0, 0, 0.1); // pink background
+      } else {
+        gl_FragColor = texture2D(u_image, pos);
+      }
     } else {
       float dis = length(pos - u_center);
       if(dis > u_radius){dis = u_radius;}
