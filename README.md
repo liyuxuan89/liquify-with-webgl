@@ -16,5 +16,6 @@ Liquifying is a common operation in Photoshop which can morph image according to
 
 ## TODO
 
-* Bilinear/Cubic interpolation
-* Dragging && zooming
+- [x] Bilinear interpolation
+- [ ] Cubic interpolation
+- [ ] Dragging && Zooming

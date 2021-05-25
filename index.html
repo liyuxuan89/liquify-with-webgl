@@ -9,6 +9,9 @@
   <style>
     * {margin: 0; border: 0;}
     html, body {height: 100%; width: 100%;}
+    body {background-image: linear-gradient(90deg, rgba(180, 180, 180, 0.15) 10%, rgba(0, 0, 0, 0) 10%),
+                            linear-gradient(rgba(180, 180, 180, 0.15) 10%, rgba(0, 0, 0, 0) 10%); 
+          background-size: 10px 10px;}
   </style>
 </head>
 
@@ -32,6 +35,7 @@
   uniform vec2 u_offset;
   uniform vec2 u_move;
   uniform vec2 u_center;
+  uniform vec2 u_resolution;
   uniform float u_radius;
   uniform bool u_process;
   varying vec2 v_position;
@@ -41,20 +45,37 @@
       pos.y = -pos.y;
       pos = (pos + 1.0 - u_offset) / u_scale;
       if(pos.x < 0.0 || pos.y < 0.0 || pos.x > 1.0 || pos.y > 1.0) {
-        gl_FragColor = vec4(1, 0, 0, 0.1); // pink background
+        gl_FragColor = vec4(0, 0, 0, 0.0);
       } else {
         gl_FragColor = texture2D(u_image, pos);
       }
     } else {
       float dis = length(pos - u_center);
-      if(dis > u_radius){dis = u_radius;}
-      vec2 move = u_move;
-      if(length(move) > 0.5 * u_radius) {
-        move = move * u_radius / length(move) * 0.5;
+      if(dis > u_radius){
+        pos = (pos + 1.0) / 2.0;
+        gl_FragColor = texture2D(u_image, pos);
+      } else {
+        vec2 move = u_move;
+        if(length(move) > 0.3 * u_radius) {
+          move = move * u_radius / length(move) * 0.3;
+        }
+        pos = pos - move * (1.0 - dis / u_radius);
+        pos = (pos + 1.0) / 2.0;
+        pos = pos * u_resolution;
+        vec2 pos1 = vec2(floor(pos.x), floor(pos.y));
+        vec2 pos2 = vec2(floor(pos.x), ceil(pos.y));
+        vec2 pos3 = vec2(ceil(pos.x), floor(pos.y));
+        vec2 pos4 = vec2(ceil(pos.x), ceil(pos.y));
+        vec4 c1 = texture2D(u_image, pos1 / u_resolution);
+        vec4 c2 = texture2D(u_image, pos2 / u_resolution);
+        vec4 c3 = texture2D(u_image, pos3 / u_resolution);
+        vec4 c4 = texture2D(u_image, pos4 / u_resolution);
+        // vec4 c12 = (pos.y - floor(pos.y)) * c2 + (ceil(pos.y) - pos.y) * c1; 这样数值稳定性差
+        vec4 c12 = (pos.y - floor(pos.y)) * c2 + (1. - pos.y + floor(pos.y)) * c1;
+        vec4 c34 = (pos.y - floor(pos.y)) * c4 + (1. - pos.y + floor(pos.y)) * c3;
+        gl_FragColor = (pos.x - floor(pos.x)) * c34 + (1. - pos.x + floor(pos.x)) * c12;
       }
-      pos = pos - move * (1.0 - dis / u_radius);
-      pos = (pos + 1.0) / 2.0;
-      gl_FragColor = texture2D(u_image, pos);
+      
     }
   }
 </script>
@@ -204,6 +225,7 @@
     var radiusUniformLocation = gl.getUniformLocation(program, "u_radius");
     var moveUniformLocation = gl.getUniformLocation(program, "u_move");
     var centerUniformLocation = gl.getUniformLocation(program, "u_center");
+    var resolutionUniformLocation = gl.getUniformLocation(program, "u_resolution")
 
     var scale_x = canvas.width / image.width;
     var scale_y = canvas.height / image.height;
@@ -241,6 +263,7 @@
       gl.bindTexture(gl.TEXTURE_2D, textures[idx]);
       gl.uniform2f(centerUniformLocation, center_x, center_y);
       gl.uniform2f(moveUniformLocation, move_x, move_y);
+      gl.uniform2f(resolutionUniformLocation, image.width, image.height);
       gl.uniform1f(processUniformLocation, true);
       gl.uniform1f(radiusUniformLocation, radius);
       gl.viewport(0, 0, image.width, image.height);
